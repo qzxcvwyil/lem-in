@@ -55,7 +55,7 @@ func (p *Parser) Parse(filePath string) (*model.Input, error) {
 		line := p.sc.Text()
 
 		if line == "" {
-			return nil, errors.New("line cannot be empty")
+			continue
 		}
 
 		if line == "##start" {
