@@ -43,4 +43,4 @@ with the raw output too.
 
 ---
 
-Made by Bakhtiyar.S
+Made by Madina Sabyrgali

@@ -40,7 +40,7 @@ _Specific error message's **example: ERROR: invalid data format, invalid number 
 
 ## Proposed Structure's
 
-### Bakhtiyar
+### Madina
 
 ```
 ❯ tree .
@@ -109,11 +109,3 @@ lem-in/
 │
 └── README.md
 ```
-
-## Useful links
-
-[Lem in by Eviber](https://github.com/Eviber/lem-in)
-
-[example room's](https://01.tomorrow-school.ai/git/root/public/src/branch/master/subjects/lem-in/examples)
-
-[lem-in audit](https://01.tomorrow-school.ai/git/root/public/src/branch/master/subjects/lem-in/audit)
