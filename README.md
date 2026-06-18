@@ -8,7 +8,7 @@ Make sure your Go version is **1.24.2** or above
 
 ## Program start:
 
-1. Clone project: `git clone https://01.tomorrow-school.ai/git/msabyrga/lem-in.git`
+1. Clone project: `git clone https://github.com/qzxcvwyil/lem-in`
 2. Open directory: `cd lem-in`
 3. Start the app: `go run cmd/main.go examples/example00.txt`
 
