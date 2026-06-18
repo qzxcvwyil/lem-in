@@ -39,7 +39,7 @@ func NewParser() *Parser {
 func (p *Parser) Parse(filePath string) (*model.Input, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("opening file: %w", err)
+		return nil, errors.New("cannot open file")
 	}
 	defer file.Close()
 
@@ -48,7 +48,7 @@ func (p *Parser) Parse(filePath string) (*model.Input, error) {
 	p.sc.Scan()
 	ants := p.sc.Text()
 	if err := p.handleAnts(ants); err != nil {
-		return nil, fmt.Errorf("handling ants: %w", err)
+		return nil, err
 	}
 
 	for p.sc.Scan() {
@@ -60,14 +60,14 @@ func (p *Parser) Parse(filePath string) (*model.Input, error) {
 
 		if line == "##start" {
 			if err := p.handleStart(); err != nil {
-				return nil, fmt.Errorf("handling start room: %w", err)
+				return nil, err
 			}
 			continue
 		}
 
 		if line == "##end" {
 			if err := p.handleEnd(); err != nil {
-				return nil, fmt.Errorf("handling end room: %w", err)
+				return nil, err
 			}
 			continue
 		}
@@ -79,24 +79,24 @@ func (p *Parser) Parse(filePath string) (*model.Input, error) {
 
 		if strings.Contains(line, "-") {
 			if err := p.handleLink(line); err != nil {
-				return nil, fmt.Errorf("handling link: %w", err)
+				return nil, err
 			}
 			continue
 		}
 
 		room, err := parseRoom(line)
 		if err != nil {
-			return nil, fmt.Errorf("parsing room: %w", err)
+			return nil, err
 		}
 		p.input.Rooms = append(p.input.Rooms, *room)
 	}
 
 	if !p.startSeen {
-		return nil, errors.New("start room not found")
+		return nil, errors.New("no start room found")
 	}
 
 	if !p.endSeen {
-		return nil, errors.New("end room not found")
+		return nil, errors.New("no end room found")
 	}
 
 	return &p.input, nil
@@ -105,11 +105,11 @@ func (p *Parser) Parse(filePath string) (*model.Input, error) {
 func (p *Parser) handleAnts(ants string) error {
 	antsInt, err := strconv.Atoi(ants)
 	if err != nil {
-		return errors.New("ants must be int")
+		return errors.New("invalid number of Ants")
 	}
 
 	if antsInt <= 0 {
-		return errors.New("ants must be more than 0")
+		return errors.New("invalid number of Ants")
 	}
 
 	p.input.Ants = antsInt
@@ -119,17 +119,17 @@ func (p *Parser) handleAnts(ants string) error {
 
 func (p *Parser) handleStart() error {
 	if p.startSeen {
-		return errors.New("start marker duplicated")
+		return errors.New("start room duplicated")
 	}
 
 	if scanned := p.sc.Scan(); !scanned {
-		return errors.New("file ended unexpectedly")
+		return errors.New("no start room found")
 	}
 
 	line := p.sc.Text()
 	startRoom, err := parseRoom(line)
 	if err != nil {
-		return fmt.Errorf("parsing room: %w", err)
+		return err
 	}
 
 	p.input.StartRoom = *startRoom
@@ -140,17 +140,17 @@ func (p *Parser) handleStart() error {
 
 func (p *Parser) handleEnd() error {
 	if p.endSeen {
-		return errors.New("end marker duplicated")
+		return errors.New("end room duplicated")
 	}
 
 	if scanned := p.sc.Scan(); !scanned {
-		return errors.New("file ended unexpectedly")
+		return errors.New("no end room found")
 	}
 
 	line := p.sc.Text()
 	endRoom, err := parseRoom(line)
 	if err != nil {
-		return fmt.Errorf("parsing room: %w", err)
+		return err
 	}
 
 	p.input.EndRoom = *endRoom
@@ -198,12 +198,12 @@ func parseRoom(line string) (*model.Room, error) {
 
 	x, err := strconv.Atoi(roomParts[1])
 	if err != nil {
-		return nil, fmt.Errorf("x atoi conversion: %w", err)
+		return nil, errors.New("invalid room coordinates")
 	}
 
 	y, err := strconv.Atoi(roomParts[2])
 	if err != nil {
-		return nil, fmt.Errorf("y atoi conversion: %w", err)
+		return nil, errors.New("invalid room coordinates")
 	}
 
 	if strings.HasPrefix(roomParts[0], "#") || strings.HasPrefix(roomParts[0], "L") {

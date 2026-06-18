@@ -13,7 +13,6 @@ type ant struct {
 }
 
 func Solve(input [][]string, ants int) (string, error) {
-	// distributedAnts contains number of ants per path
 	distributedAnts := distribute(input, ants)
 
 	allAnts := make([]ant, 0)
@@ -71,21 +70,15 @@ func Solve(input [][]string, ants int) (string, error) {
 }
 
 func distribute(paths [][]string, ants int) []int {
-	// We initialize slice with length of paths, ex: We have 2 valid paths -> assigned = [0, 0]
 	assigned := make([]int, len(paths))
 
-	// We iterate over ants, and assign one ant over path
 	for range ants {
 		bestPath := 0
-		// We iterate over valid paths and check the shortest available path for ant
 		for i := range paths {
-			// if length of path + assigned ants is less than best path we update our best path because it's cheaper
 			if len(paths[i])+assigned[i] < len(paths[bestPath])+assigned[bestPath] {
-				// bestPath track the index of the path with lowest turns (steps)
 				bestPath = i
 			}
 		}
-		// we assign out ant to current best path. PS: best path in this case is the shortest path
 		assigned[bestPath]++
 	}
 

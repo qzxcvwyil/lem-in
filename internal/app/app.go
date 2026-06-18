@@ -12,31 +12,31 @@ import (
 
 func Run(args []string) error {
 	if err := validation.Args(args); err != nil {
-		return fmt.Errorf("args validation: %w", err)
+		return err
 	}
 
 	pr := parser.NewParser()
 	input, err := pr.Parse(args[0])
 	if err != nil {
-		return fmt.Errorf("parsing input: %w", err)
+		return err
 	}
 
 	if err := validation.Input(input); err != nil {
-		return fmt.Errorf("input validation: %w", err)
+		return err
 	}
 
 	rightPaths, err := pathfinding.FindRightPaths(input)
 	if err != nil {
-		return fmt.Errorf("finding right paths: %w", err)
+		return err
 	}
 
 	result, err := solver.Solve(rightPaths, input.Ants)
 	if err != nil {
-		return fmt.Errorf("solve function: %w", err)
+		return err
 	}
 
 	if err := printResult(args[0], result); err != nil {
-		return fmt.Errorf("reading file: %w", err)
+		return err
 	}
 
 	return nil

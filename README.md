@@ -18,6 +18,7 @@ If something doesn't work contact **Telegram**: **
 ## Project structure:
 
 1. **cmd/** - main.go file
+   - **visualizer** - bonus ant farm visualizer (reads lem-in's stdout and animates it)
 2. **internal/**
    - **app** - orchestration layer
    - **model** - domain types
@@ -26,6 +27,19 @@ If something doesn't work contact **Telegram**: **
    - **service/pathfinding** - BFS-based path finding
    - **service/solver** - ant distribution and simulation
 3. **examples/** - example input files
+
+## Bonus: visualizer
+
+```
+go run cmd/main.go examples/example05.txt | go run cmd/visualizer/main.go
+```
+
+Renders an animated map of the colony directly in the terminal: rooms are drawn
+at their real coordinates from the input file, connected by actual lines
+(not just a single dash), each room is labeled with its name, and the number
+of ants currently waiting in a room is shown right under it. The current
+turn's moves (`Lx-y ...`) are printed below the map so you can follow along
+with the raw output too.
 
 ---
 

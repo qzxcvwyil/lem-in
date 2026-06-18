@@ -25,6 +25,12 @@ go.work.sum
 # env file
 .env
 
+# Project-specific build artifacts (in case `go build` is run without -o)
+/lem-in
+/visualizer
+/cmd/main
+/cmd/visualizer/visualizer
+
 # ---> macOS
 # General
 .DS_Store
@@ -52,8 +58,9 @@ Icon
 .AppleDesktop
 Network Trash Folder
 Temporary Items
-<<<<<<< HEAD
 .apdisk
-=======
-.apdisk
->>>>>>> d2c28fa (committerminal)
+
+# ---> IDE / editors
+.vscode/
+.idea/
+*.swp

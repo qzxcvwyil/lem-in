@@ -6,7 +6,6 @@ import (
 	"01.tomorrow-school.ai/git/msabyrga/lem-in.git/internal/model"
 )
 
-// FindRightPaths finds vertex-disjoint paths using node splitting + Edmonds-Karp.
 func FindRightPaths(input *model.Input) ([][]string, error) {
 	start := input.StartRoom.Name
 	end := input.EndRoom.Name
@@ -14,7 +13,6 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 	in := func(n string) string { return n + "_in" }
 	out := func(n string) string { return n + "_out" }
 
-	// residual[u][v] = remaining capacity
 	residual := make(map[string]map[string]int)
 
 	add := func(u, v string, cap int) {
@@ -25,13 +23,11 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 			residual[v] = make(map[string]int)
 		}
 		residual[u][v] += cap
-		// reverse edge (capacity 0 initially)
 		if _, ok := residual[v][u]; !ok {
 			residual[v][u] = 0
 		}
 	}
 
-	// Collect all room names
 	allRooms := make(map[string]bool)
 	allRooms[start] = true
 	allRooms[end] = true
@@ -42,8 +38,6 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 		}
 	}
 
-	// Node splitting: room_in -> room_out with capacity 1
-	// (start and end get capacity = large number to allow all ants)
 	for room := range allRooms {
 		if room == start || room == end {
 			add(in(room), out(room), len(input.Links)+1)
@@ -52,7 +46,6 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 		}
 	}
 
-	// Edges: room_out -> neighbor_in with capacity 1
 	for room, neighbors := range input.Links {
 		for _, neighbor := range neighbors {
 			add(out(room), in(neighbor), 1)
@@ -62,9 +55,7 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 	source := in(start)
 	sink := out(end)
 
-	// Edmonds-Karp: BFS to find augmenting paths
 	for {
-		// BFS
 		prev := make(map[string]string)
 		visited := map[string]bool{source: true}
 		queue := []string{source}
@@ -74,7 +65,6 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 			curr := queue[0]
 			queue = queue[1:]
 
-			// sort neighbors for determinism (optional but helps)
 			for next, cap := range residual[curr] {
 				if cap > 0 && !visited[next] {
 					visited[next] = true
@@ -92,7 +82,6 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 			break
 		}
 
-		// Find bottleneck
 		flow := int(^uint(0) >> 1) // max int
 		cur := sink
 		for cur != source {
@@ -113,12 +102,9 @@ func FindRightPaths(input *model.Input) ([][]string, error) {
 		}
 	}
 
-	// Extract paths by following used edges (where forward capacity decreased)
-	// We detect used edges: out(room) -> in(neighbor) where residual < 1 (i.e., was used)
 	usedEdge := make(map[string]map[string]bool)
 	for room, neighbors := range input.Links {
 		for _, neighbor := range neighbors {
-			// edge was used if forward cap = 0 (started at 1)
 			if residual[out(room)][in(neighbor)] == 0 {
 				if usedEdge[room] == nil {
 					usedEdge[room] = make(map[string]bool)

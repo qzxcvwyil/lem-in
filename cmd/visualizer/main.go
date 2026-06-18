@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,29 +14,158 @@ type Room struct {
 	name string
 	x, y int
 }
-
 type State struct {
 	rooms                  map[string]Room
-	links                  []([2]string)
-	antPos                 map[int]string // ant id -> room name
+	roomOrder              []string // insertion order, used for stable legend ordering
+	links                  [][2]string
+	antPos                 map[int]string // ant id -> current room name
 	moves                  []map[int]string
+	moveLines              []string // raw "Lx-y Lz-w ..." text per turn, for the side log
 	start                  string
 	end                    string
+	totalAnts              int
 	minX, maxX, minY, maxY int
 }
 
+type Canvas struct {
+	w, h  int
+	chars [][]rune
+	color [][]string
+}
+
+const (
+	reset  = "\033[0m"
+	bold   = "\033[1m"
+	dim    = "\033[2m"
+	cyan   = "\033[36m"
+	yellow = "\033[33m"
+	green  = "\033[32m"
+	red    = "\033[31m"
+	gray   = "\033[90m"
+	white  = "\033[97m"
+)
+
 func main() {
-	state := parse()
+	state := parse(os.Stdin)
+	if len(state.rooms) == 0 {
+		fmt.Println("No colony data received. Pipe lem-in's output into the visualizer:")
+		fmt.Println("  go run . examples/example00.txt | go run ./cmd/visualizer")
+		return
+	}
 	animate(state)
 }
 
-func parse() *State {
+func newCanvas(w, h int) *Canvas {
+	c := &Canvas{w: w, h: h}
+	c.chars = make([][]rune, h)
+	c.color = make([][]string, h)
+	for y := 0; y < h; y++ {
+		c.chars[y] = make([]rune, w)
+		c.color[y] = make([]string, w)
+		for x := 0; x < w; x++ {
+			c.chars[y][x] = ' '
+			c.color[y][x] = ""
+		}
+	}
+	return c
+}
+
+func (c *Canvas) set(x, y int, ch rune, col string) {
+	if x < 0 || x >= c.w || y < 0 || y >= c.h {
+		return
+	}
+	if c.chars[y][x] != ' ' && (ch == '-' || ch == '|' || ch == '\\' || ch == '/') {
+		return
+	}
+	c.chars[y][x] = ch
+	c.color[y][x] = col
+}
+
+func (c *Canvas) drawLine(x0, y0, x1, y1 int, ch rune, col string) {
+	dx := abs(x1 - x0)
+	dy := abs(y1 - y0)
+	sx, sy := 1, 1
+	if x1 < x0 {
+		sx = -1
+	}
+	if y1 < y0 {
+		sy = -1
+	}
+	x, y := x0, y0
+	if dx > dy {
+		errAcc := dx / 2
+		for i := 0; i <= dx; i++ {
+			c.set(x, y, ch, col)
+			errAcc -= dy
+			if errAcc < 0 {
+				y += sy
+				errAcc += dx
+			}
+			x += sx
+		}
+	} else {
+		errAcc := dy / 2
+		for i := 0; i <= dy; i++ {
+			c.set(x, y, ch, col)
+			errAcc -= dx
+			if errAcc < 0 {
+				x += sx
+				errAcc += dy
+			}
+			y += sy
+		}
+	}
+}
+
+func (c *Canvas) text(x, y int, s string, col string) {
+	for i, ch := range s {
+		c.set(x+i, y, ch, col)
+	}
+}
+
+func (c *Canvas) reserve(x, y int) {
+	if x < 0 || x >= c.w || y < 0 || y >= c.h {
+		return
+	}
+	c.chars[y][x] = ' '
+	c.color[y][x] = ""
+}
+
+func canvasHeight(s *State) int {
+	const minHeight = 28
+	const maxHeight = 50
+
+	uniqueY := make(map[int]struct{})
+	for _, r := range s.rooms {
+		uniqueY[r.y] = struct{}{}
+	}
+
+	needed := len(uniqueY)*2 + 4
+	if needed < minHeight {
+		return minHeight
+	}
+	if needed > maxHeight {
+		return maxHeight
+	}
+	return needed
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func parse(r *os.File) *State {
 	s := &State{
 		rooms:  make(map[string]Room),
 		antPos: make(map[int]string),
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
 	var ants int
 	lineNum := 0
 	nextIsStart := false
@@ -49,15 +179,13 @@ func parse() *State {
 			continue
 		}
 
-		// First line: number of ants
 		if lineNum == 0 {
 			ants, _ = strconv.Atoi(line)
 			lineNum++
 			continue
 		}
 
-		// Detect moves section (starts with L)
-		if strings.HasPrefix(line, "L") {
+		if strings.HasPrefix(line, "L") && looksLikeMoveLine(line) {
 			movesSection = true
 		}
 
@@ -65,7 +193,6 @@ func parse() *State {
 			turn := make(map[int]string)
 			parts := strings.Fields(line)
 			for _, p := range parts {
-				// Lx-room
 				p = strings.TrimPrefix(p, "L")
 				dash := strings.Index(p, "-")
 				if dash < 0 {
@@ -79,6 +206,7 @@ func parse() *State {
 				turn[id] = room
 			}
 			s.moves = append(s.moves, turn)
+			s.moveLines = append(s.moveLines, line)
 			continue
 		}
 
@@ -94,7 +222,6 @@ func parse() *State {
 			continue
 		}
 
-		// Link
 		if strings.Contains(line, "-") && !strings.Contains(line, " ") {
 			parts := strings.SplitN(line, "-", 2)
 			if len(parts) == 2 {
@@ -103,12 +230,17 @@ func parse() *State {
 			continue
 		}
 
-		// Room: name x y
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
-			x, _ := strconv.Atoi(parts[1])
-			y, _ := strconv.Atoi(parts[2])
+			x, errX := strconv.Atoi(parts[1])
+			y, errY := strconv.Atoi(parts[2])
+			if errX != nil || errY != nil {
+				continue
+			}
 			r := Room{name: parts[0], x: x, y: y}
+			if _, exists := s.rooms[parts[0]]; !exists {
+				s.roomOrder = append(s.roomOrder, parts[0])
+			}
 			s.rooms[parts[0]] = r
 			if nextIsStart {
 				s.start = parts[0]
@@ -120,12 +252,11 @@ func parse() *State {
 		}
 	}
 
-	// Initial positions: all ants at start
+	s.totalAnts = ants
 	for i := 1; i <= ants; i++ {
 		s.antPos[i] = s.start
 	}
 
-	// Compute bounds
 	first := true
 	for _, r := range s.rooms {
 		if first {
@@ -150,141 +281,153 @@ func parse() *State {
 	return s
 }
 
+func looksLikeMoveLine(line string) bool {
+	fields := strings.Fields(line)
+	for _, f := range fields {
+		if !strings.HasPrefix(f, "L") {
+			return false
+		}
+		rest := strings.TrimPrefix(f, "L")
+		dash := strings.Index(rest, "-")
+		if dash <= 0 {
+			return false
+		}
+		if _, err := strconv.Atoi(rest[:dash]); err != nil {
+			return false
+		}
+	}
+	return len(fields) > 0
+}
+
 func animate(s *State) {
-	width := 60
-	height := 20
+	mapWidth := 100
+	mapHeight := canvasHeight(s)
+	labelPad := 1
 
 	scaleX := func(x int) int {
 		if s.maxX == s.minX {
-			return width / 2
+			return mapWidth / 2
 		}
-		return (x-s.minX)*(width-4)/(s.maxX-s.minX) + 2
+		return (x-s.minX)*(mapWidth-2*labelPad-12)/(s.maxX-s.minX) + labelPad + 2
 	}
 	scaleY := func(y int) int {
 		if s.maxY == s.minY {
-			return height / 2
+			return mapHeight / 2
 		}
-		return (y-s.minY)*(height-3)/(s.maxY-s.minY) + 1
+		return (y-s.minY)*(mapHeight-3)/(s.maxY-s.minY) + 1
 	}
 
-	// ANSI colors
-	const (
-		reset  = "\033[0m"
-		bold   = "\033[1m"
-		cyan   = "\033[36m"
-		yellow = "\033[33m"
-		green  = "\033[32m"
-		red    = "\033[31m"
-		gray   = "\033[90m"
-	)
+	pos := make(map[string][2]int)
+	for name, r := range s.rooms {
+		pos[name] = [2]int{scaleX(r.x), scaleY(r.y)}
+	}
 
-	render := func(turn int) {
-		// Build grid
-		grid := make([][]rune, height)
-		for i := range grid {
-			grid[i] = make([]rune, width)
-			for j := range grid[i] {
-				grid[i][j] = ' '
+	render := func(turnIdx int) {
+		canvas := newCanvas(mapWidth, mapHeight)
+
+		for _, link := range s.links {
+			p1, ok1 := pos[link[0]]
+			p2, ok2 := pos[link[1]]
+			if !ok1 || !ok2 {
+				continue
 			}
+			canvas.drawLine(p1[0], p1[1], p2[0], p2[1], '.', gray)
 		}
 
-		// Place room dots
-		for _, r := range s.rooms {
-			cx := scaleX(r.x)
-			cy := scaleY(r.y)
-			if cy >= 0 && cy < height && cx >= 0 && cx < width {
-				grid[cy][cx] = '·'
+		sortedNames := append([]string{}, s.roomOrder...)
+		sort.Strings(sortedNames) // stable, deterministic draw order
+		for _, name := range sortedNames {
+			p := pos[name]
+			switch name {
+			case s.start:
+				canvas.set(p[0], p[1], 'S', bold+red)
+			case s.end:
+				canvas.set(p[0], p[1], 'E', bold+green)
+			default:
+				canvas.set(p[0], p[1], 'o', white)
 			}
+			canvas.text(p[0]+1, p[1], name, dim+cyan)
+		}
+		for _, name := range sortedNames {
+			p := pos[name]
+			canvas.reserve(p[0]+1+len([]rune(name)), p[1])
 		}
 
-		// Place ants (just show number or 'A' if >9)
 		roomAnts := make(map[string][]int)
 		for id, room := range s.antPos {
 			roomAnts[room] = append(roomAnts[room], id)
 		}
-
-		// Clear screen and move cursor to top
-		fmt.Print("\033[H\033[2J")
-
-		// Header
-		fmt.Printf("%s%s=== Lem-in Visualizer === Turn: %d/%d ===%s\n\n",
-			bold, cyan, turn, len(s.moves), reset)
-
-		// Draw links as dashes (simple)
-		for _, link := range s.links {
-			r1, ok1 := s.rooms[link[0]]
-			r2, ok2 := s.rooms[link[1]]
-			if !ok1 || !ok2 {
+		for name, antIDs := range roomAnts {
+			p, ok := pos[name]
+			if !ok {
 				continue
 			}
-			x1, y1 := scaleX(r1.x), scaleY(r1.y)
-			x2, y2 := scaleX(r2.x), scaleY(r2.y)
-			// Draw midpoint as '-'
-			mx, my := (x1+x2)/2, (y1+y2)/2
-			if my >= 0 && my < height && mx >= 0 && mx < width {
-				if grid[my][mx] == ' ' {
-					grid[my][mx] = '-'
-				}
+			label := fmt.Sprintf("(%d)", len(antIDs))
+			col := bold + yellow
+			if name == s.end {
+				col = bold + green
 			}
+			canvas.text(p[0], p[1]+1, label, col)
 		}
 
-		// Print grid with colors
-		for row := 0; row < height; row++ {
-			for col := 0; col < width; col++ {
-				ch := grid[row][col]
-				switch ch {
-				case '·':
-					// Check if any ant here
-					for name, r := range s.rooms {
-						if scaleX(r.x) == col && scaleY(r.y) == row {
-							ants := roomAnts[name]
-							if len(ants) > 0 {
-								if name == s.end {
-									fmt.Printf("%s%s%d%s", bold, green, len(ants), reset)
-								} else {
-									fmt.Printf("%s%s%d%s", bold, yellow, len(ants), reset)
-								}
-							} else if name == s.start {
-								fmt.Printf("%s%sS%s", bold, red, reset)
-							} else if name == s.end {
-								fmt.Printf("%s%sE%s", bold, green, reset)
-							} else {
-								fmt.Printf("%s·%s", gray, reset)
-							}
-							goto nextCol
-						}
-					}
-				case '-':
-					fmt.Printf("%s-%s", gray, reset)
-					goto nextCol
-				default:
-					fmt.Print(string(ch))
-				}
-			nextCol:
-			}
-			fmt.Println()
-		}
+		clearScreen()
 
-		// Legend
-		fmt.Printf("\n%sS%s = start  %sE%s = end  %s#%s = ants (count)%s\n",
-			red, reset, green, reset, yellow, reset, reset)
-		fmt.Printf("Ants at end: %s%d%s / %d\n",
-			green, len(roomAnts[s.end]), reset, len(s.antPos))
+		fmt.Printf("%s%s=== Lem-in Visualizer ===  Turn %d / %d ===%s\n",
+			bold, cyan, turnIdx, len(s.moves), reset)
+		fmt.Printf("%sS%s start   %sE%s end   %so%s room   %s(n)%s ants waiting there\n\n",
+			bold+red, reset, bold+green, reset, white, reset, yellow, reset)
+
+		printCanvas(canvas)
+
+		atEnd := len(roomAnts[s.end])
+		fmt.Printf("\nAnts at end: %s%d%s / %d\n", green, atEnd, reset, s.totalAnts)
+
+		if turnIdx > 0 && turnIdx <= len(s.moveLines) {
+			fmt.Printf("%sMoves this turn:%s %s\n", dim, reset, s.moveLines[turnIdx-1])
+		}
 	}
 
-	// Initial state (turn 0)
 	render(0)
-	time.Sleep(800 * time.Millisecond)
+	time.Sleep(900 * time.Millisecond)
 
-	// Animate each turn
 	for i, turn := range s.moves {
-		// Apply moves
 		for id, room := range turn {
 			s.antPos[id] = room
 		}
 		render(i + 1)
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 	}
 
-	fmt.Println("\n\033[1m\033[32mDone! All ants reached the end.\033[0m")
+	fmt.Printf("\n%s%sDone! All %d ants reached %s.%s\n", bold, green, s.totalAnts, s.end, reset)
+}
+
+func clearScreen() {
+	fmt.Print("\033[H\033[2J\033[3J")
+	os.Stdout.Sync()
+}
+
+func printCanvas(c *Canvas) {
+	var sb strings.Builder
+	for y := 0; y < c.h; y++ {
+		lastColor := ""
+		for x := 0; x < c.w; x++ {
+			ch := c.chars[y][x]
+			col := c.color[y][x]
+			if col != lastColor {
+				if lastColor != "" {
+					sb.WriteString(reset)
+				}
+				if col != "" {
+					sb.WriteString(col)
+				}
+				lastColor = col
+			}
+			sb.WriteRune(ch)
+		}
+		if lastColor != "" {
+			sb.WriteString(reset)
+		}
+		sb.WriteByte('\n')
+	}
+	fmt.Print(sb.String())
 }
